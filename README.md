@@ -45,3 +45,11 @@ mwsh original-bookmarks.html -s -w whitelist.txt -o cleaned.html
 ``` 
 
 A better idea for default output behavior is that marwash outputs urls it thinks alive to stdout as text stream(one URL per line), and unknown/dead url to stderr, where each line in format of `[status]\t[url]`, and make producing a cleaned bookmark file (which aligned to the structure of input file) optional. I think this is way more unix-ish as it employs simple and clean text stream output, which means other existing programs can work with the output easily.
+
+So what if user would like to know why a specific URL is classified as dead / unknown status? As we have used stdout and stderr to output alive and dead/unknown urls respectively, in order to not mix error details into these output stream we can consider adding an option to output errors/status code to a given file descriptor. A better idea IMO, is to output error/status code along with url status, like following:
+```
+<status> <url> [respCode] [error] where respCode and error presents if available
+example:
+Unknown https://mybank.com/login    401
+Dead    http://non.existent.domain  Unknown Host
+```

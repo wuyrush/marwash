@@ -2,29 +2,37 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	urlpkg "net/url"
 	"time"
 
 	"github.com/avast/retry-go"
+	"go.uber.org/zap"
 )
 
 // Pinger checks whether a given URL is reachable or not.
 // Pinger should be safe for concurrent use.
 type Pinger struct {
-	HTTPClient *http.Client
-	pingFns    []pingFn
+	Doer    Doer
+	Log     *zap.SugaredLogger
+	pingFns []pingFn
+}
+
+// Doer abstract away the mechanism to perform HTTP request. Currently we expect it holds the same contract as
+// that of *http.Client.Do() regarding request/response/error.
+type Doer interface {
+	Do(*http.Request) (*http.Response, error)
 }
 
 // pingFn pings url and return ping status and error encountered.
 type pingFn func(url string) (PingStatus, error)
 
 // NewPinger returns a new Pinger.
-func NewPinger(hc *http.Client) *Pinger {
-	p := &Pinger{HTTPClient: hc}
+func NewPinger(doer Doer, log *zap.SugaredLogger) *Pinger {
+	p := &Pinger{Doer: doer, Log: log}
 	p.pingFns = []pingFn{
 		func(url string) (PingStatus, error) { return p.ping(url, http.MethodHead) },
 		func(url string) (PingStatus, error) { return p.ping(url, http.MethodGet) },
@@ -43,15 +51,16 @@ func (p *Pinger) Ping(url string) (status PingStatus, err error) {
 	return
 }
 
-// terminal returns true if the given ping result necessitates no retries.
+// terminal tells if we need to continue pinging(with a different strategy) based on ping result
 func terminal(status PingStatus, err error) bool {
-	return status == Alive || status == Dead || noRetry(err)
-}
-
-// noRetry returns true if err necessitates no retries.
-func noRetry(err error) bool {
-	// TODO: implement
-	return true
+	if status == Alive || status == Dead {
+		// reachability already known
+		return true
+	} else if v, ok := err.(statusNotAlive); ok && http.StatusMethodNotAllowed == int(v) {
+		// we can continue pinging with a different http method
+		return false
+	}
+	return !errOrStatusRetryable(err)
 }
 
 func (p *Pinger) ping(url, method string) (PingStatus, error) {
@@ -59,12 +68,13 @@ func (p *Pinger) ping(url, method string) (PingStatus, error) {
 	if err != nil {
 		return Unknown, err
 	}
+	req.Header.Add("User-Agent", randUserAgent())
 	var resp *http.Response
 	err = retry.Do(
 		func() error {
-			resp, err = p.HTTPClient.Do(req)
+			resp, err = p.Doer.Do(req)
 			if err == nil && !alive(resp.StatusCode) {
-				// read up response body and close it so that connection can be reused for next retry if any
+				// make sure connection can be reused for successive retries, if any
 				blackhole(resp.Body)
 				err = statusNotAlive(resp.StatusCode)
 			}
@@ -81,7 +91,7 @@ func (p *Pinger) ping(url, method string) (PingStatus, error) {
 	}
 	// no point to read up body as bookmarks are usually unique to each other, plus we've done all retries
 	_ = resp.Body.Close()
-	return check(resp.StatusCode), nil
+	return check(resp.StatusCode), err
 }
 
 func errOrStatusRetryable(err error) bool {
@@ -89,17 +99,17 @@ func errOrStatusRetryable(err error) bool {
 	case *urlpkg.Error:
 		return v.Temporary() || v.Timeout()
 	case statusNotAlive:
-		_, ok := retryCodes[int(v)]
+		_, ok := retryable[int(v)]
 		return ok
 	default:
-		// this should never happen
-		panic(fmt.Sprintf("ping: got error of unknown type %T", err))
+		return false
 	}
 }
 
-func blackhole(respBody io.ReadCloser) {
-	defer respBody.Close()
-	br := bufio.NewReader(respBody)
+// blackhole reads and discards data from rc to EOF
+func blackhole(rc io.ReadCloser) {
+	defer rc.Close()
+	br := bufio.NewReader(rc)
 	_, _ = br.WriteTo(ioutil.Discard)
 }
 
@@ -109,8 +119,9 @@ func (s statusNotAlive) Error() string {
 	return http.StatusText(int(s))
 }
 
+// check return ping status based on ping response status code.
 func check(code int) PingStatus {
-	if _, ok := deadCodes[code]; ok {
+	if _, ok := dead[code]; ok {
 		return Dead
 	} else if alive(code) {
 		return Alive
@@ -139,7 +150,7 @@ func alive(code int) bool {
 }
 
 // set of status codes which we consider the URL is hard dead.
-var deadCodes = map[int]struct{}{
+var dead = map[int]struct{}{
 	http.StatusConflict:              {}, // most likely associated with PUT request instead of HEAD and GET
 	http.StatusGone:                  {}, // server intentionally knows the resource is unavailable
 	http.StatusRequestEntityTooLarge: {}, // HEAD/GET has no request body
@@ -149,7 +160,7 @@ var deadCodes = map[int]struct{}{
 	http.StatusNotImplemented:        {},
 }
 
-var retryCodes = map[int]struct{}{
+var retryable = map[int]struct{}{
 	http.StatusMisdirectedRequest:  {}, // MAY retry with a new connection
 	http.StatusTooManyRequests:     {}, // can retry with the same conn
 	http.StatusInternalServerError: {},
@@ -158,4 +169,20 @@ var retryCodes = map[int]struct{}{
 	http.StatusGatewayTimeout:      {},
 	http.StatusInsufficientStorage: {},
 	599:                            {},
+}
+
+func randUserAgent() string {
+	return userAgentHeaders[rand.Int()%len(userAgentHeaders)]
+}
+
+var userAgentHeaders = []string{
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:78.0) Gecko/20100101 Firefox/78.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:76.0) Gecko/20100101 Firefox/76.0",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.106 Safari/537.36 OPR/38.0.2220.41",
+	"Mozilla/5.0 (compatible; MSIE 9.0; Windows Phone OS 7.5; Trident/5.0; IEMobile/9.0)",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 13_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Safari/605.1.15",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36 Edge/16.16299",
+	"Mozilla/5.0 (Linux; Android 9.0.4; Google Pixel) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19",
 }
