@@ -21,8 +21,8 @@ type Pinger struct {
 	pingFns []pingFn
 }
 
-// Doer abstract away the mechanism to perform HTTP request. Currently we expect it holds the same contract as
-// that of *http.Client.Do() regarding request/response/error.
+// Doer is an abstraction over *http.Client.Do in std lib. It is to achieve better testability than
+// using the plain http.Client struct.
 type Doer interface {
 	Do(*http.Request) (*http.Response, error)
 }
@@ -149,7 +149,7 @@ func alive(code int) bool {
 	return code < 300 && code >= 200
 }
 
-// set of status codes which we consider the URL is hard dead.
+// set of status codes which we consider the URL is dead.
 var dead = map[int]struct{}{
 	http.StatusConflict:              {}, // most likely associated with PUT request instead of HEAD and GET
 	http.StatusGone:                  {}, // server intentionally knows the resource is unavailable

@@ -82,6 +82,7 @@ func TestPinger_alive(t *testing.T) {
 			}(),
 		},
 	}
+	log := genTstLogger()
 	for _, c := range tcs {
 		t.Run(c.name, func(t *testing.T) {
 			pinger := NewPinger(c.dmock, log)
@@ -129,10 +130,10 @@ func (e errMock) Error() string {
 	return fmt.Sprintf("%#v", e)
 }
 
-var log = func() *zap.SugaredLogger {
+func genTstLogger() *zap.SugaredLogger {
 	lg, err := zap.NewDevelopment()
 	if err != nil {
 		panic(err)
 	}
 	return lg.Sugar()
-}()
+}
