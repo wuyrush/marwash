@@ -1,6 +1,6 @@
-# marwash
+# mwsh
 
-Traverse the bookmarked URLs exported from your browser and retain the living ones.
+Traverse the bookmarks exported from your browser to see which ones are still alive.
 
 Supported browsers:
 1. Chrome
