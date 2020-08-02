@@ -66,7 +66,7 @@ func terminal(status PingStatus, err error) bool {
 func (p *Pinger) ping(url, method string) (PingStatus, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		return Unknown, err
+		return Dead, err
 	}
 	req.Header.Add("User-Agent", randUserAgent())
 	var resp *http.Response
@@ -75,7 +75,7 @@ func (p *Pinger) ping(url, method string) (PingStatus, error) {
 			resp, err = p.Doer.Do(req)
 			if err == nil && !alive(resp.StatusCode) {
 				// make sure connection can be reused for successive retries, if any
-				blackhole(resp.Body)
+				p.blackhole(resp.Body)
 				err = statusNotAlive(resp.StatusCode)
 			}
 			return err
@@ -91,6 +91,7 @@ func (p *Pinger) ping(url, method string) (PingStatus, error) {
 	}
 	// no point to read up body as bookmarks are usually unique to each other, plus we've done all retries
 	_ = resp.Body.Close()
+	// make error, be it due to network / bad response,  accessible to users
 	return check(resp.StatusCode), err
 }
 
@@ -107,10 +108,13 @@ func errOrStatusRetryable(err error) bool {
 }
 
 // blackhole reads and discards data from rc to EOF
-func blackhole(rc io.ReadCloser) {
+func (p *Pinger) blackhole(rc io.ReadCloser) {
 	defer rc.Close()
 	br := bufio.NewReader(rc)
-	_, _ = br.WriteTo(ioutil.Discard)
+	_, err := br.WriteTo(ioutil.Discard)
+	if err != nil {
+		p.Log.Errorw("failed to discard input data", "error", err)
+	}
 }
 
 type statusNotAlive int
