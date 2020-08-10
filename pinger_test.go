@@ -73,6 +73,20 @@ func TestPinger_alive(t *testing.T) {
 				return m
 			}(),
 		},
+		{
+			name: "RetriedOnPreviousMethodNotAllowed",
+			dmock: func() *doerMock {
+				m := &doerMock{}
+				m.On("Do", mock.Anything).Run(func(args mock.Arguments) {
+					reqAsExpected(t, args.Get(0).(*http.Request), url, http.MethodHead)
+				}).Return(genResp(http.StatusMethodNotAllowed), nil).Once()
+				m.On("Do", mock.Anything).Run(func(args mock.Arguments) {
+					reqAsExpected(t, args.Get(0).(*http.Request), url, http.MethodGet)
+				}).Return(genResp(http.StatusServiceUnavailable), nil).Once()
+				m.On("Do", mock.Anything).Return(genResp(http.StatusOK), nil).Once()
+				return m
+			}(),
+		},
 	}
 	log := genTstLogger()
 	for _, cs := range tcs {
