@@ -15,7 +15,12 @@ import (
 
 // Pinger checks whether a given URL is reachable or not.
 // Pinger should be safe for concurrent use.
-type Pinger struct {
+type Pinger interface {
+	Ping(url string) (status PingStatus, err error)
+}
+
+// HTTPinger checks URLs in HTTP/S scheme.
+type HTTPinger struct {
 	Doer    Doer
 	Log     *zap.SugaredLogger
 	pingFns []pingFn
@@ -30,9 +35,9 @@ type Doer interface {
 // pingFn pings url and return ping status and error encountered.
 type pingFn func(url string) (PingStatus, error)
 
-// NewPinger returns a new Pinger.
-func NewPinger(doer Doer, log *zap.SugaredLogger) *Pinger {
-	p := &Pinger{Doer: doer, Log: log}
+// NewHTTPinger returns a new HTTPinger.
+func NewHTTPinger(doer Doer, log *zap.SugaredLogger) *HTTPinger {
+	p := &HTTPinger{Doer: doer, Log: log}
 	p.pingFns = []pingFn{
 		func(url string) (PingStatus, error) { return p.ping(url, http.MethodHead) },
 		func(url string) (PingStatus, error) { return p.ping(url, http.MethodGet) },
@@ -41,7 +46,7 @@ func NewPinger(doer Doer, log *zap.SugaredLogger) *Pinger {
 }
 
 // Ping pings url to determine whether it is reachable or not.
-func (p *Pinger) Ping(url string) (status PingStatus, err error) {
+func (p *HTTPinger) Ping(url string) (status PingStatus, err error) {
 	for _, f := range p.pingFns {
 		status, err = f(url)
 		if terminal(status, err) {
@@ -63,7 +68,7 @@ func terminal(status PingStatus, err error) bool {
 	return !errOrStatusRetryable(err)
 }
 
-func (p *Pinger) ping(url, method string) (PingStatus, error) {
+func (p *HTTPinger) ping(url, method string) (PingStatus, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		return Dead, err
@@ -108,7 +113,7 @@ func errOrStatusRetryable(err error) bool {
 }
 
 // blackhole reads and discards data from rc to EOF
-func (p *Pinger) blackhole(rc io.ReadCloser) {
+func (p *HTTPinger) blackhole(rc io.ReadCloser) {
 	defer rc.Close()
 	br := bufio.NewReader(rc)
 	_, err := br.WriteTo(ioutil.Discard)

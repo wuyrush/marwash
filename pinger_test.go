@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestPinger_alive(t *testing.T) {
+func TestHTTPinger_alive(t *testing.T) {
 
 	url := "https://foo.bar"
 	tcs := []struct {
@@ -96,7 +96,7 @@ func TestPinger_alive(t *testing.T) {
 		c := cs
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			pinger := NewPinger(c.dmock, log)
+			pinger := NewHTTPinger(c.dmock, log)
 			status, err := pinger.Ping(url)
 			c.dmock.AssertExpectations(t)
 			assert.Equal(t, Alive, status)
@@ -105,7 +105,7 @@ func TestPinger_alive(t *testing.T) {
 	}
 }
 
-func TestPinger_dead(t *testing.T) {
+func TestHTTPinger_dead(t *testing.T) {
 	url := "https://dead.url"
 	type tcase struct {
 		name   string
@@ -139,7 +139,7 @@ func TestPinger_dead(t *testing.T) {
 		c := cs
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			pinger := NewPinger(c.dmock, log)
+			pinger := NewHTTPinger(c.dmock, log)
 			status, err := pinger.Ping(url)
 			c.dmock.AssertExpectations(t)
 			assert.Equal(t, Dead, status)
@@ -148,14 +148,14 @@ func TestPinger_dead(t *testing.T) {
 	}
 }
 
-func TestPinger_dead_BadURL(t *testing.T) {
+func TestHTTPinger_dead_BadURL(t *testing.T) {
 	badUrls := []string{
 		"http://foo\n",
 	}
 	log := genTstLogger()
 	for _, url := range badUrls {
 		t.Run(url, func(t *testing.T) {
-			pinger := NewPinger(nil, log)
+			pinger := NewHTTPinger(nil, log)
 			status, err := pinger.Ping(url)
 			assert.Equal(t, Dead, status)
 			assert.NotEmpty(t, err)
@@ -163,7 +163,7 @@ func TestPinger_dead_BadURL(t *testing.T) {
 	}
 }
 
-func TestPinger_unknown(t *testing.T) {
+func TestHTTPinger_unknown(t *testing.T) {
 	// TODO Table-driven test: Get the 1st case running and then all others will follow
 	url := "https://unknown.url"
 	type tcase struct {
@@ -210,7 +210,7 @@ func TestPinger_unknown(t *testing.T) {
 		c := cs
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			pinger := NewPinger(c.dmock, log)
+			pinger := NewHTTPinger(c.dmock, log)
 			status, err := pinger.Ping(url)
 			c.dmock.AssertExpectations(t)
 			assert.Equal(t, Unknown, status)

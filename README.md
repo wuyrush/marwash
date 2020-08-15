@@ -53,3 +53,5 @@ example:
 Unknown https://mybank.com/login    401
 Dead    http://non.existent.domain  Unknown Host
 ```
+
+A even better idea is to output all the bookmarked URL statuses to stdout, and leave stderr for any errors we encounter and debugging logs. The reasoning being that with existing unix filters like `grep`, `sort` and `awk` a user can get whatever results she want without any hassle, as long as `mwsh` provides output in a way that is easy for these filters to process.

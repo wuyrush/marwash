@@ -1,4 +1,4 @@
-module wuyrush.io/marwash
+module wuyrush.io/mwsh
 
 go 1.14
 
