@@ -26,7 +26,7 @@ type Walker interface {
 	// Next walks to and returns the next bookmark. It returns io.EOF when walking to the end of text
 	// stream, or a non-EOF error when error happened during walk.
 	Next() (*Bookmark, error)
-	// Stop stops and exits the walk. A call to Next after calling Stop() has no side effect but returns io.EOF
+	// Stop stops and exits the walk. Consecutive calls to Next() after calling Stop() *eventually* returns io.EOF
 	Stop()
 }
 
@@ -58,7 +58,7 @@ func NewNetscapeWalker(r io.Reader, log *zap.SugaredLogger) *NetscapeWalker {
 func (w *NetscapeWalker) Next() (*Bookmark, error) {
 	// no need to be goroutine-safe for now
 	if !w.started {
-		w.log.Debug("walk haven't been started. Start walking")
+		w.log.Debug("start walking")
 		go w.walk()
 		w.started = true
 	}
@@ -67,6 +67,10 @@ func (w *NetscapeWalker) Next() (*Bookmark, error) {
 		return nil, io.EOF
 	}
 	return r.B, r.E
+}
+
+func (w *NetscapeWalker) Stop() {
+	close(w.done)
 }
 
 func (w *NetscapeWalker) walk() {
@@ -139,8 +143,4 @@ func genBookmark(attr []html.Attribute) (*Bookmark, error) {
 		}
 	}
 	return &Bookmark{URL: url, AddDate: addDate}, nil
-}
-
-func (w *NetscapeWalker) Stop() {
-	close(w.done)
 }

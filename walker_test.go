@@ -119,3 +119,63 @@ func TestNetscapeWalker(t *testing.T) {
 		})
 	}
 }
+
+func TestWalkerStopEarly(t *testing.T) {
+	// get a reader providing infinite bookmark stream :D
+	// have a separate goroutine start the walker on the stream
+	// main goroutine await the start of walker, call walker's Stop() and await the starter goroutine to exhuast the walker.
+	r, log := &infReader{}, genTstLogger()
+	walker := NewNetscapeWalker(r, log)
+	// start iteration on walker
+	started, start, done := false, make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			b, err := walker.Next()
+			if !started {
+				started = true
+				close(start)
+			}
+			if err != nil {
+				assert.Empty(t, b, "no bookmark data should have present on exhausting walker")
+				assert.Equalf(t, io.EOF, err, "expect io.EOF on exhausting walker but got %v", err)
+				return
+			}
+			assert.NotEmpty(t, b, "bookmark data should have present when walker is not exhausted")
+		}
+	}()
+	// stop walker after iteration had started
+	<-start
+	walker.Stop()
+	// verify iteration on walker is eventually stopped
+	timeout := time.NewTimer(1 * time.Second)
+	defer timeout.Stop()
+	select {
+	case <-done:
+	case <-timeout.C:
+		t.Error("iteration on walker still running after timeout elapsed, indicating buggy walker stop mechanism")
+	}
+}
+
+// infReader mimics reading an inifinite byte stream of bookmarks.
+type infReader struct {
+	curr io.Reader
+}
+
+func (r *infReader) Read(p []byte) (int, error) {
+	// read data from it into p. if curr exhaust, replace it with a new one
+	if r.curr == nil {
+		r.curr = r.spare()
+	}
+	curr := r.curr
+	n, err := curr.Read(p)
+	if err == io.EOF {
+		r.curr = r.spare()
+		return n, nil
+	}
+	return n, err
+}
+
+func (r *infReader) spare() io.Reader {
+	return bytes.NewReader([]byte(`<DT><A HREF="https://foo/" ADD_DATE="1515361177" ICON="data:image/png;base64,blah==">Foo</A>`))
+}

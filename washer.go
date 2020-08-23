@@ -40,6 +40,7 @@ func NewWasher(walker Walker, pinger Pinger, log *zap.SugaredLogger, cquota int)
 // when there is no more bookmark left, or a non-EOF error when washer encounter any during washing.
 func (w *Washer) Next() (*Bookmark, error) {
 	if !w.started {
+		w.log.Debug("start washing")
 		go w.wash()
 		w.started = true
 	}
@@ -50,8 +51,7 @@ func (w *Washer) Next() (*Bookmark, error) {
 	return res.B, res.E
 }
 
-// Stop stops washer. A call to Next after calling Stop() returns io.EOF
-// TODO: UTs
+// Stop stops washer. Consecutively calling Next() after calling Stop() *eventually* returns io.EOF
 func (w *Washer) Stop() { close(w.done) }
 
 func (w *Washer) wash() {
@@ -97,11 +97,10 @@ func (w *Washer) wash() {
 				defer wg.Done()
 				select {
 				case w.cquota <- struct{}{}:
+					defer func() { <-w.cquota }()
 				case <-w.done:
 					return
 				}
-				defer func() { <-w.cquota }()
-
 				status, err := w.pinger.Ping(bmk.URL)
 				bmk.Status = status
 				select {
