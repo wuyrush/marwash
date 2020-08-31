@@ -235,35 +235,38 @@ func TestStartWashTillDone(t *testing.T) {
 
 func TestStartWashTillDoneStopOnSignal(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		in := &infReader{}
-		out := ioutil.Discard
-		dmock := &doerMock{}
-		washstart, started := make(chan struct{}), false
-		dmock.On("Do", mock.Anything).Run(func(args mock.Arguments) {
-			if !started {
-				started = true
-				close(washstart)
-			}
-		}).Return(genResp(http.StatusOK), nil)
-		log := genTstLogger()
-		cquota := 14
+		sig := sig
+		t.Run(sig.String(), func(t *testing.T) {
+			in := &infReader{}
+			out := ioutil.Discard
+			dmock := &doerMock{}
+			washstart, started := make(chan struct{}), false
+			dmock.On("Do", mock.Anything).Run(func(args mock.Arguments) {
+				if !started {
+					started = true
+					close(washstart)
+				}
+			}).Return(genResp(http.StatusOK), nil)
+			log := genTstLogger()
+			cquota := 14
 
-		aborted := make(chan struct{})
-		go func() {
-			defer close(aborted)
-			StartWashTillDone(in, out, dmock, cquota, log)
-		}()
-		<-washstart
-		timeout := time.NewTimer(500 * time.Millisecond)
-		defer timeout.Stop()
-		// send OS signal to this process. Inspired by UTs against os/signal: https://golang.org/src/os/signal/signal_test.go
-		t.Logf("%s...", sig.String())
-		syscall.Kill(syscall.Getpid(), sig)
-		select {
-		case <-aborted:
-		case <-timeout.C:
-			t.Error("StartWashTillDone should have aborted after receiving OS signal")
-		}
+			aborted := make(chan struct{})
+			go func() {
+				defer close(aborted)
+				StartWashTillDone(in, out, dmock, cquota, log)
+			}()
+			<-washstart
+			timeout := time.NewTimer(500 * time.Millisecond)
+			defer timeout.Stop()
+			// send OS signal to this process. Inspired by UTs against os/signal: https://golang.org/src/os/signal/signal_test.go
+			t.Logf("%s...", sig.String())
+			syscall.Kill(syscall.Getpid(), sig)
+			select {
+			case <-aborted:
+			case <-timeout.C:
+				t.Error("StartWashTillDone should have aborted after receiving OS signal")
+			}
+		})
 	}
 }
 
