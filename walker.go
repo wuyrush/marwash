@@ -33,13 +33,13 @@ type Walker interface {
 // NetscapeWalker walks text stream in Netscape Bookmark File Format.
 type NetscapeWalker struct {
 	tokenizer *html.Tokenizer
-	wchan     chan *walkResult
+	wchan     chan *Result
 	done      chan struct{}
 	log       *zap.SugaredLogger
 	started   bool
 }
 
-type walkResult struct {
+type Result struct {
 	B *Bookmark
 	E error
 }
@@ -49,7 +49,7 @@ func NewNetscapeWalker(r io.Reader, log *zap.SugaredLogger) *NetscapeWalker {
 	t := html.NewTokenizer(r)
 	w := &NetscapeWalker{}
 	w.tokenizer = t
-	w.wchan = make(chan *walkResult)
+	w.wchan = make(chan *Result)
 	w.done = make(chan struct{})
 	w.log = log
 	return w
@@ -83,7 +83,7 @@ func (w *NetscapeWalker) walk() {
 		switch tt := z.Next(); tt {
 		case html.ErrorToken:
 			select {
-			case wchan <- &walkResult{nil, z.Err()}:
+			case wchan <- &Result{nil, z.Err()}:
 			case <-w.done:
 			}
 			return
@@ -98,7 +98,7 @@ func (w *NetscapeWalker) walk() {
 			log.Infow("created bookmark", "bookmark", bmk, "err", err)
 			if err != nil {
 				select {
-				case wchan <- &walkResult{nil, err}:
+				case wchan <- &Result{nil, err}:
 				case <-w.done:
 				}
 				return
@@ -110,7 +110,7 @@ func (w *NetscapeWalker) walk() {
 				continue
 			}
 			select {
-			case wchan <- &walkResult{bmk, nil}:
+			case wchan <- &Result{bmk, nil}:
 				log.Infow("dispatched bookmark", "bookmark", bmk)
 			case <-w.done:
 				return
